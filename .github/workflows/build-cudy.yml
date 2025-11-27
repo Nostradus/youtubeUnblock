@@ -1,0 +1,59 @@
+name: Build youtubeUnblock for Cudy WR3000
+
+on:
+  workflow_dispatch: # Позволяет запускать сборку кнопкой вручную
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential libncurses5-dev zlib1g-dev gawk git gettext libssl-dev xsltproc rsync wget unzip python3 python3-distutils python3-setuptools swig zstd file
+
+    - name: Download OpenWrt SDK (Filogic 820 / 24.10.4)
+      run: |
+        # Скачиваем SDK
+        wget https://archive.openwrt.org/releases/24.10.4/targets/mediatek/filogic/openwrt-sdk-24.10.4-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+        # Распаковываем
+        tar -I zstd -xf openwrt-sdk-*.tar.zst
+        # Переименовываем папку для удобства
+        mv openwrt-sdk-* sdk
+
+    - name: Clone youtubeUnblock (Branch openwrt_2410_workflow)
+      run: |
+        cd sdk
+        # Клонируем нужную ветку прямо в папку package
+        git clone -b openwrt_2410_workflow https://github.com/Waujito/youtubeUnblock.git package/youtubeUnblock
+
+    - name: Update Feeds & Config
+      run: |
+        cd sdk
+        # Обновляем стандартные фиды (нужны для зависимостей)
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        
+        # Создаем базовый конфиг
+        make defconfig
+        
+        # Принудительно включаем пакет в конфиг
+        # Это заменяет make menuconfig
+        echo "CONFIG_PACKAGE_youtubeUnblock=m" >> .config
+        echo "CONFIG_PACKAGE_luci-app-youtubeUnblock=m" >> .config
+        
+        # Разворачиваем зависимости
+        make defconfig
+
+    - name: Compile Package
+      run: |
+        cd sdk
+        # Запускаем сборку (j$(nproc) использует все ядра процессора сервера)
+        make package/youtubeUnblock/compile V=s -j$(nproc) || make package/youtubeUnblock/compile V=s
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: youtubeUnblock-CudyWR3000
+        path: sdk/bin/packages/aarch64_cortex-a53/base/*.ipk
